@@ -444,39 +444,40 @@ int ObSRTaaTIterImpl::project_results(const int64_t safe_capacity, int64_t &coun
       relevance_datum = relevance_expr->locate_batch_datums(*eval_ctx);
     }
   }
-  for (; OB_SUCC(ret) && count < safe_capacity && *cur_map_iter_ != hash_maps_[cur_map_idx_]->end(); ++(*cur_map_iter_)) {
+  {
     ObEvalCtx::BatchInfoScopeGuard guard(*eval_ctx);
-    guard.set_batch_idx(count);
-    set_datum_func_(id_datum[count], (*cur_map_iter_)->first);
-    if (iter_param_->need_project_relevance()) {
-      relevance_datum[count].set_double((*cur_map_iter_)->second);
-      relevance_expr->set_evaluated_flag(*eval_ctx);
-    }
-    if (0 == count) {
-      cache_first_id_ = (*cur_map_iter_)->first;
-    }
-
-    bool need_project = false;
-    ObDatum *filter_res = nullptr;
-    if (!iter_param_->need_filter()) {
-      need_project = true;
-    } else {
-      filter_expr->clear_evaluated_flag(*eval_ctx);
-      if (OB_FAIL(filter_expr->eval(*eval_ctx, filter_res))) {
-      } else {
-        need_project = !(filter_res->is_null() || 0 == filter_res->get_int());
+    for (; OB_SUCC(ret) && count < safe_capacity && *cur_map_iter_ != hash_maps_[cur_map_idx_]->end(); ++(*cur_map_iter_)) {
+      guard.set_batch_idx(count);
+      set_datum_func_(id_datum[count], (*cur_map_iter_)->first);
+      if (iter_param_->need_project_relevance()) {
+        relevance_datum[count].set_double((*cur_map_iter_)->second);
+        relevance_expr->set_evaluated_flag(*eval_ctx);
       }
-    }
+      if (0 == count) {
+        cache_first_id_ = (*cur_map_iter_)->first;
+      }
 
-    if (OB_SUCC(ret) && need_project) {
-      ++input_row_cnt_;
-      if (limit_param->is_valid() && input_row_cnt_ <= limit_param->offset_) {
-        // don't need to project, will be overwritten
+      bool need_project = false;
+      ObDatum *filter_res = nullptr;
+      if (!iter_param_->need_filter()) {
+        need_project = true;
       } else {
-        ++output_row_cnt_;
-        ++count;
-        if (limit_param->is_valid() && output_row_cnt_ >= limit_param->limit_) {
-          ret = OB_ITER_END;
+        filter_expr->clear_evaluated_flag(*eval_ctx);
+        if (OB_FAIL(filter_expr->eval(*eval_ctx, filter_res))) {
+        } else {
+          need_project = !(filter_res->is_null() || 0 == filter_res->get_int());
+        }
+      }
+
+      if (OB_SUCC(ret) && need_project) {
+        ++input_row_cnt_;
+        if (limit_param->is_valid() && input_row_cnt_ <= limit_param->offset_) {
+          // don't need to project, will be overwritten
+        } else {
+          ++output_row_cnt_;
+          ++count;
+          if (limit_param->is_valid() && output_row_cnt_ >= limit_param->limit_) {
+            ret = OB_ITER_END;
         }
       }
     }

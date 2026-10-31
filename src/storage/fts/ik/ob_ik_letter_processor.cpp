@@ -110,15 +110,22 @@ int ObIKLetterProcessor::process_arabic_letter(TokenizeContext &ctx,
     arabic_char_cnt_ += arabic_connect_cnt_;
     arabic_char_cnt_++;
     arabic_connect_cnt_ = 0;
+  } else if (ObFTCharUtil::CharType::USELESS != type) {
+    is_connector = false;
+    if (OB_FAIL(ctx.add_token(ctx.fulltext(),
+                              arabic_start_,
+                              arabic_end_ - arabic_start_,
+                              arabic_char_cnt_,
+                              ObIKTokenType::IK_ARABIC_TOKEN))) {
+    } else {
+      reset_arabic_state();
+    }
   } else if (OB_FAIL(
                  ObFTCharUtil::check_num_connector(ctx.collation(), ch, char_len, is_connector))) {
-  } else if (ObFTCharUtil::CharType::USELESS == type && is_connector) {
-    // only if connector follows  and is followed by an arabic number we count it
+  } else if (is_connector) {
+    // only if connector follows and is followed by an arabic number we count it
     arabic_connect_cnt_++;
   } else {
-    if (is_connector) {
-      arabic_connect_cnt_ = 0;
-    }
     if (OB_FAIL(ctx.add_token(ctx.fulltext(),
                               arabic_start_,
                               arabic_end_ - arabic_start_,
@@ -168,11 +175,21 @@ int ObIKLetterProcessor::process_mix_letter(TokenizeContext &ctx,
     if (is_mix_char) {
       mix_end_ = ctx.get_end_cursor();
       this->mix_char_cnt_++;
+    } else if (ObFTCharUtil::CharType::USELESS != type) {
+      is_connector = false;
+      if (OB_FAIL(ctx.add_token(ctx.fulltext(),
+                                mix_start_,
+                                mix_end_ - mix_start_,
+                                mix_char_cnt_,
+                                ObIKTokenType::IK_MIX_TOKEN))) {
+      } else {
+        reset_mix_state();
+      }
     } else if (OB_FAIL(ObFTCharUtil::check_letter_connector(ctx.collation(),
                                                             ch,
                                                             char_len,
                                                             is_connector))) {
-    } else if (ObFTCharUtil::CharType::USELESS == type && is_connector) {
+    } else if (is_connector) {
       this->mix_end_ = ctx.get_end_cursor();
       this->mix_char_cnt_++;
     } else {

@@ -98,7 +98,9 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
     int64_t token_len = 0;
     // to next non-whitespace pos
     while (OB_SUCC(ret) && found_delimiter()) {
-      const int64_t c_len = ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      const unsigned char uc = static_cast<unsigned char>(doc[trav_pos_]);
+      const int64_t c_len = (uc < 128) ? ((uc > 0) ? 1 : 0)
+                                        : ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
       trav_pos_ += c_len;
       if (trav_pos_ >= doc_len || 0 == c_len) {// if char is invalid, just skip the rest of document
         iter_end_ = true;
@@ -112,7 +114,8 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
 
     // to next whitespace pos
     while (OB_SUCC(ret) && !found_delimiter()) {
-      const int64_t c_len = ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
+      const unsigned char uc = static_cast<unsigned char>(doc[trav_pos_]);
+      const int64_t c_len = (uc < 128) ? 1 : ob_mbcharlen_ptr(cs_, doc + trav_pos_, doc + doc_len);
       trav_pos_ += c_len;
       token_len += c_len;
       if (trav_pos_ >= doc_len || 0 == c_len) {
@@ -136,10 +139,13 @@ int ObTextWhitespaceTokenizer::get_next(ObDatum &next_token, int64_t &token_freq
 
 bool ObTextWhitespaceTokenizer::found_delimiter()
 {
-  bool found = false;
-  const char *curr_char = input_doc_->ptr_ + trav_pos_;
-  found = ob_isspace(cs_, *curr_char) || ob_iscntrl(cs_, *curr_char) || ob_ispunct(cs_, *curr_char);
-  return found;
+  const unsigned char c = static_cast<unsigned char>(input_doc_->ptr_[trav_pos_]);
+  if (c < 128) {
+    return (c <= 32) || (c == 127) ||
+           (c >= 33 && c <= 47) || (c >= 58 && c <= 64) ||
+           (c >= 91 && c <= 96) || (c >= 123 && c <= 126);
+  }
+  return ob_isspace(cs_, c) || ob_iscntrl(cs_, c) || ob_ispunct(cs_, c);
 }
 
 ObTokenNormalizer::ObTokenNormalizer()
@@ -209,8 +215,11 @@ int ObTokenStopWordNormalizer::filter_special_marks(const ObDatum &check_token, 
   const char *token = check_token.ptr_;
   int64_t special_mark_cnt = 0;
   for (int64_t i = 0; i < token_len; ++i) {
-    const char *character = token + i;
-    if (ob_ispunct(cs_, *character) || ob_iscntrl(cs_, *character)) {
+    const unsigned char c = static_cast<unsigned char>(token[i]);
+    const bool is_special = (c < 128) ? (c <= 31 || c == 127 || (c >= 33 && c <= 47) ||
+                                         ( (c >= 58 && c <= 64) || (c >= 91 && c <= 96) || (c >= 123 && c <= 126)))
+                                      : (ob_ispunct(cs_, token[i]) || ob_iscntrl(cs_, token[i]));
+    if (is_special) {
       special_mark_cnt++;
     }
   }
@@ -261,8 +270,10 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
         uint32_t first_alnum_pos = 0;
         uint32_t last_alnum_pos = raw_token_len - 1;
         for (uint32_t i = 0; i < raw_token_len; ++i) {
-          const char *character = token + i;
-          if (ob_isalnum(cs_, *character)) {
+          const unsigned char c = static_cast<unsigned char>(token[i]);
+          const bool is_alnum = (c < 128) ? ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+                                          : ob_isalnum(cs_, token[i]);
+          if (is_alnum) {
             first_alnum_pos = i;
             found_alnum = true;
             break;
@@ -270,8 +281,10 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
         }
 
         for (int32_t i = raw_token_len - 1; 0 <= i && i < raw_token_len && i >= first_alnum_pos; --i) {
-          const char *character = token + i;
-          if (ob_isalnum(cs_, *character)) {
+          const unsigned char c = static_cast<unsigned char>(token[i]);
+          const bool is_alnum = (c < 128) ? ((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
+                                          : ob_isalnum(cs_, token[i]);
+          if (is_alnum) {
             last_alnum_pos = i;
             found_alnum = true;
             break;
@@ -293,11 +306,29 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
     } else if (OB_UNLIKELY(!found_alnum)) {
       ret = OB_ERR_UNEXPECTED;
     } else {
-      ObString norm_alnum_token(norm_token_len, norm_token_ptr);
-      ObString norm_lower_token;
-      if (OB_FAIL(ObCharset::tolower(cs_, norm_alnum_token, norm_lower_token, norm_allocator_))) {
+      bool all_ascii = true;
+      for (uint32_t i = 0; i < norm_token_len; ++i) {
+        if (static_cast<unsigned char>(norm_token_ptr[i]) >= 128) {
+          all_ascii = false;
+          break;
+        }
+      }
+      if (all_ascii) {
+        char *lower_buf = const_cast<char *>(norm_token_ptr);
+        for (uint32_t i = 0; i < norm_token_len; ++i) {
+          char c = lower_buf[i];
+          if (c >= 'A' && c <= 'Z') {
+            lower_buf[i] = c + ('a' - 'A');
+          }
+        }
+        next_token.set_string(norm_token_ptr, norm_token_len);
       } else {
-        next_token.set_string(norm_lower_token);
+        ObString norm_alnum_token(norm_token_len, norm_token_ptr);
+        ObString norm_lower_token;
+        if (OB_FAIL(ObCharset::tolower(cs_, norm_alnum_token, norm_lower_token, norm_allocator_))) {
+        } else {
+          next_token.set_string(norm_lower_token);
+        }
       }
     }
   }

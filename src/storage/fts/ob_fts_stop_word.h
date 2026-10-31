@@ -21,6 +21,7 @@
 #include "lib/hash/ob_hashset.h"
 #include "object/ob_object.h"
 #include "data_plane/fts/ob_fts_struct.h"
+#include "lib/allocator/ob_allocator.h"
 
 namespace oceanbase
 {
@@ -86,6 +87,7 @@ private:
 
   StopWordSet stopword_set_;
   ObObjMeta stopword_type_;
+  common::ObArenaAllocator check_allocator_;
 
   bool inited_ = false;
 

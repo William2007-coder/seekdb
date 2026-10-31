@@ -1006,9 +1006,10 @@ int ObDASTRTaatIter::fill_output_exprs(int64_t &count, int64_t safe_capacity)
   } else if (need_relevance) {
     relevance_proj_datum = relevance_proj_col->locate_batch_datums(*eval_ctx);
   }
-  for (;OB_SUCC(ret) && next_written_idx_ < safe_capacity && (*cur_map_iter_) != map->end(); (*cur_map_iter_)++) {
+  {
+    ObEvalCtx::BatchInfoScopeGuard guard(*ir_rtdef_->eval_ctx_);
+    for (;OB_SUCC(ret) && next_written_idx_ < safe_capacity && (*cur_map_iter_) != map->end(); (*cur_map_iter_)++) {
       ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
-      ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
       guard.set_batch_idx(next_written_idx_);
       set_datum_func_(doc_id_proj_datum[next_written_idx_], (*cur_map_iter_)->first);
       if (need_relevance) {
@@ -1038,6 +1039,7 @@ int ObDASTRTaatIter::fill_output_exprs(int64_t &count, int64_t safe_capacity)
           }
         }
       }
+    }
   }
   if (OB_SUCC(ret) && need_relevance) {
     relevance_proj_col->set_evaluated_projected(*eval_ctx);
@@ -1797,6 +1799,8 @@ int ObDASTRDaatIter::inner_get_next_rows(int64_t &count, int64_t capacity)
     count = 0;
     bool filter_valid = false;
     bool doc_valid = true;
+    ObEvalCtx *batch_ctx = ir_rtdef_->eval_ctx_;
+    ObEvalCtx::BatchInfoScopeGuard batch_guard(*batch_ctx);
     while (OB_SUCC(ret) && next_written_idx_ < real_capacity) {
       if (OB_FAIL(pull_next_batch_rows_with_batch_mode())) {
         if (OB_UNLIKELY(OB_ITER_END != ret)) {
@@ -1805,9 +1809,7 @@ int ObDASTRDaatIter::inner_get_next_rows(int64_t &count, int64_t capacity)
       } else if (!doc_valid) {
         // do nothing
       } else {
-        ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
-        ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-        guard.set_batch_idx(next_written_idx_);
+        batch_guard.set_batch_idx(next_written_idx_);
         clear_evaluated_infos();
         // Although we use the batch interface, we need still use the non-batch interface of the match_filter.
         // This is because the batch interface of the match_filter might lead to generate some invalid data position in the ctx of expr.

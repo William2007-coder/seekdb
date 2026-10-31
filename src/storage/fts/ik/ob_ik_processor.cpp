@@ -51,7 +51,8 @@ TokenizeContext::TokenizeContext(ObCollationType coll_type,
                                  const char *fulltext,
                                  int64_t fulltext_len,
                                  bool is_smart)
-    : coll_type_(coll_type), fulltext_(fulltext), fulltext_len_(fulltext_len), cursor_(0),
+    : coll_type_(coll_type), cs_type_(ObCharset::charset_type_by_coll(coll_type)),
+      fulltext_(fulltext), fulltext_len_(fulltext_len), cursor_(0),
       next_char_len_(0), handle_size_(0), is_smart_(is_smart), token_list_(allocator),
       result_list_(allocator)
 {
@@ -102,14 +103,42 @@ int TokenizeContext::current_char_type(ObFTCharUtil::CharType &type)
 int TokenizeContext::prepare_next_char()
 {
   int ret = OB_SUCCESS;
+  if (CHARSET_UTF8MB4 == cs_type_) {
+    const unsigned char uc = static_cast<const unsigned char>(fulltext_[cursor_]);
+    if (uc < 0x80) {
+      next_char_len_ = 1;
+      if ((uc >= 'A' && uc <= 'Z') || (uc >= 'a' && uc <= 'z')) {
+        next_char_type_ = ObFTCharUtil::CharType::ENGLISH_LETTER;
+      } else if (uc >= '0' && uc <= '9') {
+        next_char_type_ = ObFTCharUtil::CharType::ARABIC_LETTER;
+      } else {
+        next_char_type_ = ObFTCharUtil::CharType::USELESS;
+      }
+      return ret;
+    }
+  }
   if (OB_FAIL(ObCharset::first_valid_char(coll_type_,
                                           fulltext_ + cursor_,
                                           fulltext_len_ - cursor_,
                                           next_char_len_))) {
-  } else if (OB_FAIL(ObFTCharUtil::classify_first_char(coll_type_,
-                                                       fulltext_ + cursor_,
-                                                       next_char_len_,
-                                                       next_char_type_))) {
+  } else {
+    switch (cs_type_) {
+    case CHARSET_UTF8MB4:
+      ret = ObFTCharUtil::do_classify<CHARSET_UTF8MB4>(
+          fulltext_ + cursor_, next_char_len_, next_char_type_);
+      break;
+    case CHARSET_UTF16:
+      ret = ObFTCharUtil::do_classify<CHARSET_UTF16>(
+          fulltext_ + cursor_, next_char_len_, next_char_type_);
+      break;
+    case CHARSET_UTF16LE:
+      ret = ObFTCharUtil::do_classify<CHARSET_UTF16LE>(
+          fulltext_ + cursor_, next_char_len_, next_char_type_);
+      break;
+    default:
+      ret = OB_NOT_SUPPORTED;
+      break;
+    }
   }
   return ret;
 }

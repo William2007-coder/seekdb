@@ -25,35 +25,9 @@ namespace storage
 {
 // See: java's Character.UnicodeBlock
 
-bool ObUnicodeBlockUtils::is_alpha(const ob_wc_t unicode)
-{
-  bool is_ascii_alpha
-      = (unicode >= 0x41 && unicode <= 0x5a) || (unicode >= 0x61 && unicode <= 0x7a);
-  bool is_fw_alpha
-      = (unicode >= 0xFF21 && unicode <= 0xFF3A) || (unicode >= 0xFF41 && unicode <= 0xFF5A);
-  return is_ascii_alpha || is_fw_alpha;
-}
-
-bool ObUnicodeBlockUtils::is_arabic(const ob_wc_t unicode)
-{
-  bool is_ascii_arabic = (unicode >= 0x30 && unicode <= 0x39);
-  bool is_fw_arabic = (unicode >= 0xFF10 && unicode <= 0xFF19);
-  return is_ascii_arabic || is_fw_arabic;
-}
-
-bool ObUnicodeBlockUtils::check_high_surrogate(const ob_wc_t unicode)
-{
-  return unicode >= 0xD800 && unicode <= 0xDBFF;
-}
-
 bool ObUnicodeBlockUtils::check_high_private_use_surrogate(const ob_wc_t unicode)
 {
   return unicode >= 0xDB80 && unicode <= 0xDBFF;
-}
-
-bool ObUnicodeBlockUtils::check_low_surrogate(const ob_wc_t unicode)
-{
-  return unicode >= 0xDC00 && unicode <= 0xDFFF;
 }
 
 bool ObUnicodeBlockUtils::check_letter_connector(const ob_wc_t unicode)
@@ -97,41 +71,6 @@ bool ObUnicodeBlockUtils::check_ignore_as_single(const ob_wc_t unicode)
     }
   }
   return false;
-}
-
-bool ObUnicodeBlockUtils::is_chinese(const ob_wc_t unicode)
-{
-  // variables name keep same with it's code block name, skip code style.
-  bool CJK_UNIFIED_IDEOGRAPHS = (unicode >= 0x4E00 && unicode <= 0x9FFF);
-  bool CJK_COMPATIBILITY_IDEOGRAPHS = (unicode >= 0xF900 && unicode <= 0xFAFF);
-  bool CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A = (unicode >= 0x3400 && unicode <= 0x4DBF);
-  return CJK_UNIFIED_IDEOGRAPHS || CJK_COMPATIBILITY_IDEOGRAPHS
-         || CJK_UNIFIED_IDEOGRAPHS_EXTENSION_A;
-}
-
-bool ObUnicodeBlockUtils::is_other_cjk(const ob_wc_t unicode)
-{
-  // variables name keep same with it's code block name, skip code style.
-  bool HALFWIDTH_AND_FULLWIDTH_FORMS = (unicode >= 0xFF00 && unicode <= 0xFFEF);
-
-  bool HANGUL_SYLLABLES = (unicode >= 0xAC00 && unicode <= 0xD7AF);
-  bool HANGUL_JAMO = (unicode >= 0x1100 && unicode <= 0x11FF);
-  bool HANGUL_COMPATIBILITY_JAMO = (unicode >= 0x3130 && unicode <= 0x318f);
-
-  bool HIRAGANA = (unicode >= 0x3040 && unicode <= 0x309F);
-  bool KATAKANA = (unicode >= 0x30A0 && unicode <= 0x30FF);
-  bool KATAKANA_PHONETIC_EXTENSIONS = (unicode >= 0x31F0 && unicode <= 0x31FF);
-
-  return HALFWIDTH_AND_FULLWIDTH_FORMS || HANGUL_SYLLABLES || HANGUL_JAMO
-         || HANGUL_COMPATIBILITY_JAMO || HIRAGANA || KATAKANA || KATAKANA_PHONETIC_EXTENSIONS;
-}
-
-bool ObUnicodeBlockUtils::is_surrogate(const ob_wc_t unicode)
-{
-  bool HIGH_SURROGATES = (unicode >= 0xD800 && unicode <= 0xDB7F);
-  bool LOW_SURROGATES = (unicode >= 0xDC00 && unicode <= 0xDFFF);
-
-  return (HIGH_SURROGATES || LOW_SURROGATES);
 }
 
 bool ObUnicodeBlockUtils::is_convertable_fullwidth(const ob_wc_t unicode)
