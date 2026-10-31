@@ -1157,8 +1157,9 @@ int ObFTDMLIterator::build_ft_word_row(
     blocksstable::ObDatumRow *&dest_row)
 {
   int ret = OB_SUCCESS;
-  const int64_t DOC_ID_IDX = das_ctdef_->table_param_.get_data_table().is_fts_index_aux() ? 1 : 0;
-  const int64_t WORD_SEGMENT_IDX = das_ctdef_->table_param_.get_data_table().is_fts_index_aux() ? 0 : 1;
+  const bool is_aux = das_ctdef_->table_param_.get_data_table().is_fts_index_aux();
+  const int64_t DOC_ID_IDX = is_aux ? 1 : 0;
+  const int64_t WORD_SEGMENT_IDX = is_aux ? 0 : 1;
   static int64_t WORD_COUNT_IDX = 2;
   static int64_t DOC_LENGTH_IDX = 3;
   void *buf = nullptr;
@@ -1172,12 +1173,14 @@ int ObFTDMLIterator::build_ft_word_row(
   } else if (FALSE_IT(tmp_row = new (buf) blocksstable::ObDatumRow())) {
   } else if (OB_FAIL(tmp_row->init(src_row->count_))) {
   } else if (OB_FAIL(tmp_row->copy_attributes_except_datums(*src_row))) {
-  } else if (OB_FAIL(tmp_row->storage_datums_[DOC_ID_IDX].deep_copy(src_row->storage_datums_[0], allocator_))) {
-  } else if (OB_FAIL(tmp_row->storage_datums_[WORD_SEGMENT_IDX].deep_copy(src_row->storage_datums_[1], allocator_))) {
-  } else if (OB_FAIL(tmp_row->storage_datums_[WORD_COUNT_IDX].deep_copy(src_row->storage_datums_[2], allocator_))) {
-  } else if (OB_FAIL(tmp_row->storage_datums_[DOC_LENGTH_IDX].deep_copy(src_row->storage_datums_[3], allocator_))) {
   } else {
-    dest_row = tmp_row;
+    tmp_row->storage_datums_[DOC_ID_IDX] = src_row->storage_datums_[0];
+    tmp_row->storage_datums_[WORD_COUNT_IDX] = src_row->storage_datums_[2];
+    tmp_row->storage_datums_[DOC_LENGTH_IDX] = src_row->storage_datums_[3];
+    if (OB_FAIL(tmp_row->storage_datums_[WORD_SEGMENT_IDX].deep_copy(src_row->storage_datums_[1], allocator_))) {
+    } else {
+      dest_row = tmp_row;
+    }
   }
   return ret;
 }

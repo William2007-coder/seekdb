@@ -30,8 +30,8 @@ namespace storage
 class ObFTWord final
 {
 public:
-  ObFTWord() : word_(), meta_() {}
-  ObFTWord(const int64_t length, const char *ptr, const ObObjMeta &meta) : meta_(meta)
+  ObFTWord() : word_(), meta_(), cached_hash_func_(nullptr), cached_cmp_func_(nullptr) {}
+  ObFTWord(const int64_t length, const char *ptr, const ObObjMeta &meta) : meta_(meta), cached_hash_func_(nullptr), cached_cmp_func_(nullptr)
   {
     word_.set_string(ptr, length);
   }
@@ -49,6 +49,8 @@ public:
 private:
   ObDatum word_;
   ObObjMeta meta_;
+  mutable ObDatumHashFuncType cached_hash_func_;
+  mutable ObDatumCmpFuncType cached_cmp_func_;
 };
 
 typedef common::hash::ObHashMap<ObFTWord, int64_t> ObFTWordMap;

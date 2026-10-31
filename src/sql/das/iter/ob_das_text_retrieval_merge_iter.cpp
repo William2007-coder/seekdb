@@ -1202,9 +1202,10 @@ int ObDASTRTaatIter::fill_chunk_store_by_tr_iter()
             for (int64_t i = 0; i < hash_map_size_; ++i) {
               skips[i]->set_all(capacity);
             }
+            ObExpr *doc_id_expr = ir_ctdef_->inv_scan_domain_id_col_;
+            sql::ObEvalCtx *scan_eval_ctx = ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_;
             for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
-              ObExpr *doc_id_expr = ir_ctdef_->inv_scan_domain_id_col_;
-              const ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_, i);
+              const ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*scan_eval_ctx, i);
               if (OB_UNLIKELY(doc_id_datum.is_null()) || OB_ISNULL(doc_id_datum.ptr_)) {
                 ret = OB_ERR_UNEXPECTED;
               } else {
@@ -1217,7 +1218,7 @@ int ObDASTRTaatIter::fill_chunk_store_by_tr_iter()
             for (int64_t i = 0; OB_SUCC(ret) && i < hash_map_size_; ++i) {
               int64_t stored_rows_count = 0;
               if (OB_FAIL(datum_stores_[i]->add_batch(exprs,
-                                                 *(ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_),
+                                                 *scan_eval_ctx,
                                                  *skips[i],
                                                  count,
                                                  stored_rows_count))) {
@@ -1232,20 +1233,21 @@ int ObDASTRTaatIter::fill_chunk_store_by_tr_iter()
           }
         }
       } else {
+        ObExpr *doc_id_expr = ir_ctdef_->inv_scan_domain_id_col_;
+        sql::ObEvalCtx *scan_eval_ctx = ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_;
         while (OB_SUCC(ret)) {
           if (OB_FAIL(token_iters_.at(0)->get_next_row())) {
             if (OB_UNLIKELY(OB_ITER_END != ret)) {
             }
           } else {
-            ObExpr *doc_id_expr = ir_ctdef_->inv_scan_domain_id_col_;
-            const ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_);
+            const ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*scan_eval_ctx);
             if (OB_UNLIKELY(doc_id_datum.is_null()) || OB_ISNULL(doc_id_datum.ptr_)) {
               ret = OB_ERR_UNEXPECTED;
             } else {
               uint64_t partition = murmurhash(doc_id_datum.ptr_, doc_id_datum.len_, 0) % hash_map_size_;
               ObChunkDatumStore::StoredRow **sr = NULL;
               if (OB_FAIL(datum_stores_[partition]->add_row(exprs,
-                                                            ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_,
+                                                            scan_eval_ctx,
                                                             sr))) {
               } else {
                 token_doc_cnt ++;
@@ -1440,31 +1442,33 @@ int ObDASTRTaatLookupIter::fill_output_exprs(int64_t &count, int64_t safe_capaci
 
   ObDASTRTaatHashMap *first_map = hash_maps_[0];
   ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
-  for (int64_t i = 0; OB_SUCC(ret) && i < rangekey_size_; ++i) {
-    double cur_relevance = 0;
-    if (OB_FAIL(first_map->get_refactored(cache_doc_ids_[i], cur_relevance))) {
-      if (OB_HASH_NOT_EXIST != ret) {
-      } else {
-        ret = OB_SUCCESS;
-      }
-    }
-    if (OB_SUCC(ret)) {
-      int64_t pos = hints_[i];
-      if (pos < safe_capacity) {
-        ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-        guard.set_batch_idx(pos);
-        set_datum_func_(doc_id_proj_datum[pos], cache_doc_ids_[i]);
-        if (need_relevance) {
-          relevance_proj_datum[pos].set_double(cur_relevance);
-          relevance_proj_col->set_evaluated_flag(*eval_ctx);
+  {
+    ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
+    for (int64_t i = 0; OB_SUCC(ret) && i < rangekey_size_; ++i) {
+      double cur_relevance = 0;
+      if (OB_FAIL(first_map->get_refactored(cache_doc_ids_[i], cur_relevance))) {
+        if (OB_HASH_NOT_EXIST != ret) {
+        } else {
+          ret = OB_SUCCESS;
         }
-        output_row_cnt_ ++;
-        input_row_cnt_ ++;
-        count ++;
-      } else {
-        cache_relevances_[pos] = cur_relevance;
       }
-      next_written_idx_++;
+      if (OB_SUCC(ret)) {
+        int64_t pos = hints_[i];
+        if (pos < safe_capacity) {
+          guard.set_batch_idx(pos);
+          set_datum_func_(doc_id_proj_datum[pos], cache_doc_ids_[i]);
+          if (need_relevance) {
+            relevance_proj_datum[pos].set_double(cur_relevance);
+            relevance_proj_col->set_evaluated_flag(*eval_ctx);
+          }
+          output_row_cnt_ ++;
+          input_row_cnt_ ++;
+          count ++;
+        } else {
+          cache_relevances_[pos] = cur_relevance;
+        }
+        next_written_idx_++;
+      }
     }
   }
   if (OB_SUCC(ret)) {
@@ -1542,15 +1546,17 @@ int ObDASTRTaatLookupIter::inner_get_next_rows(int64_t &count, int64_t capacity)
       ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
       ObExpr *relevance_proj_col = ir_ctdef_->relevance_proj_col_;
       const int64_t need_read_cnt = OB_MIN(rangekey_size_ - next_written_idx_, capacity);
-      while (OB_SUCC(ret) && count < need_read_cnt) {
-        // fill the remaining results with the relevance value of '0'
-        // Note: if we need calculate the docid expr, fix the code and cache the hints.
+      {
         ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-        guard.set_batch_idx(count);
-        if (OB_FAIL(project_result(default_docid_, 0))) {
+        while (OB_SUCC(ret) && count < need_read_cnt) {
+          // fill the remaining results with the relevance value of '0'
+          // Note: if we need calculate the docid expr, fix the code and cache the hints.
+          guard.set_batch_idx(count);
+          if (OB_FAIL(project_result(default_docid_, 0))) {
+          }
+          count ++;
+          next_written_idx_ ++;
         }
-        count ++;
-        next_written_idx_ ++;
       }
       if (OB_SUCC(ret)) {
         for (int i = 0; i < rangekey_size_; i++) {
@@ -1583,14 +1589,16 @@ int ObDASTRTaatLookupIter::inner_get_next_rows(int64_t &count, int64_t capacity)
     int return_size = OB_MIN(remain_size, capacity);
     // next_written_idx_ is the output idx
     ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
-    while (count < return_size && OB_SUCC(ret)) {
-      int64_t pos = reverse_hints_[next_written_idx_];
+    {
       ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-      guard.set_batch_idx(count);
-      if (OB_FAIL(project_result(cache_doc_ids_[pos], cache_relevances_[next_written_idx_]))) {
+      while (count < return_size && OB_SUCC(ret)) {
+        int64_t pos = reverse_hints_[next_written_idx_];
+        guard.set_batch_idx(count);
+        if (OB_FAIL(project_result(cache_doc_ids_[pos], cache_relevances_[next_written_idx_]))) {
+        }
+        next_written_idx_++;
+        count ++;
       }
-      next_written_idx_++;
-      count ++;
     }
     if (OB_SUCC(ret) && next_written_idx_ == rangekey_size_) {
       ret = OB_ITER_END;
@@ -2065,15 +2073,17 @@ int ObDASTRDaatLookupIter::inner_get_next_rows(int64_t &count, int64_t capacity)
       ObExpr *relevance_proj_col = ir_ctdef_->relevance_proj_col_;
       ret = OB_SUCCESS;
       const int64_t need_read_cnt = OB_MIN(rangekey_size_ - next_written_idx_, capacity);
-      while (OB_SUCC(ret) && count < need_read_cnt) {
-        // fill the remaining results with the relevance value of '0'
-        // Note: if we need calculate the docid expr, fix the code and cache the hints.
+      {
         ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-        guard.set_batch_idx(count);
-        if (OB_FAIL(project_result(default_docid_, 0))) {
+        while (OB_SUCC(ret) && count < need_read_cnt) {
+          // fill the remaining results with the relevance value of '0'
+          // Note: if we need calculate the docid expr, fix the code and cache the hints.
+          guard.set_batch_idx(count);
+          if (OB_FAIL(project_result(default_docid_, 0))) {
+          }
+          count ++;
+          next_written_idx_ ++;
         }
-        count ++;
-        next_written_idx_ ++;
       }
       if (OB_SUCC(ret)) {
         for (int i = 0; i < need_read_cnt; i++) {
@@ -2113,15 +2123,17 @@ int ObDASTRDaatLookupIter::inner_get_next_rows(int64_t &count, int64_t capacity)
     // fill the remaining results with the relevance value of '0'
     if (OB_LIKELY(next_written_idx_ < rangekey_size_)) {
       ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
-      while (next_written_idx_ < rangekey_size_ && OB_SUCC(ret)) {
-        int64_t pos = hints_[next_written_idx_];
-        if (pos < capacity) {
-          ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-          guard.set_batch_idx(pos);
-          if (OB_FAIL(project_result(cache_doc_ids_[next_written_idx_], 0))) {
+      {
+        ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
+        while (next_written_idx_ < rangekey_size_ && OB_SUCC(ret)) {
+          int64_t pos = hints_[next_written_idx_];
+          if (pos < capacity) {
+            guard.set_batch_idx(pos);
+            if (OB_FAIL(project_result(cache_doc_ids_[next_written_idx_], 0))) {
+            }
           }
+          next_written_idx_++;
         }
-        next_written_idx_++;
       }
     }
     // output the part result in the range of capacity
@@ -2140,14 +2152,16 @@ int ObDASTRDaatLookupIter::inner_get_next_rows(int64_t &count, int64_t capacity)
     int return_size = OB_MIN(remain_size, capacity);
     // next_written_idx_ is the output idx
     ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
-    while (count < return_size && OB_SUCC(ret)) {
-      int64_t pos = reverse_hints_[next_written_idx_];
+    {
       ObEvalCtx::BatchInfoScopeGuard guard(*ctx);
-      guard.set_batch_idx(count);
-      if (OB_FAIL(project_result(cache_doc_ids_[pos], cache_relevances_[next_written_idx_]))) {
+      while (count < return_size && OB_SUCC(ret)) {
+        int64_t pos = reverse_hints_[next_written_idx_];
+        guard.set_batch_idx(count);
+        if (OB_FAIL(project_result(cache_doc_ids_[pos], cache_relevances_[next_written_idx_]))) {
+        }
+        next_written_idx_++;
+        count ++;
       }
-      next_written_idx_++;
-      count ++;
     }
     if (OB_SUCC(ret) && next_written_idx_ == rangekey_size_) {
       ret = OB_ITER_END;
