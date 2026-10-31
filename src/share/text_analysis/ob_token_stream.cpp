@@ -307,20 +307,20 @@ int ObBasicEnglishNormalizer::get_next(ObDatum &next_token, int64_t &token_freq)
       ret = OB_ERR_UNEXPECTED;
     } else {
       bool all_ascii = true;
+      bool has_upper = false;
+      char *lower_buf = const_cast<char *>(norm_token_ptr);
       for (uint32_t i = 0; i < norm_token_len; ++i) {
-        if (static_cast<unsigned char>(norm_token_ptr[i]) >= 128) {
+        unsigned char c = static_cast<unsigned char>(lower_buf[i]);
+        if (c >= 128) {
           all_ascii = false;
           break;
         }
+        if (c >= 'A' && c <= 'Z') {
+          lower_buf[i] = c + ('a' - 'A');
+          has_upper = true;
+        }
       }
       if (all_ascii) {
-        char *lower_buf = const_cast<char *>(norm_token_ptr);
-        for (uint32_t i = 0; i < norm_token_len; ++i) {
-          char c = lower_buf[i];
-          if (c >= 'A' && c <= 'Z') {
-            lower_buf[i] = c + ('a' - 'A');
-          }
-        }
         next_token.set_string(norm_token_ptr, norm_token_len);
       } else {
         ObString norm_alnum_token(norm_token_len, norm_token_ptr);

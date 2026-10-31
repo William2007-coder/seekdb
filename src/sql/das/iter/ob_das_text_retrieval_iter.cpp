@@ -303,8 +303,10 @@ int ObDASTextRetrievalIter::rescan()
   } else {
     int64_t cnt = inv_idx_scan_param_.output_exprs_->count();
     // reset expr datums for table_scan
+    sql::ObEvalCtx *scan_eval_ctx = ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_;
+    int64_t batch_size = max_batch_size_ ? max_batch_size_ : 1;
     for (int64_t i = 0; OB_SUCC(ret) && i < cnt; ++i) {
-      inv_idx_scan_param_.output_exprs_->at(i)->locate_datums_for_update(*ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_, max_batch_size_ ? max_batch_size_ : 1);
+      inv_idx_scan_param_.output_exprs_->at(i)->locate_datums_for_update(*scan_eval_ctx, batch_size);
     }
   }
   return ret;

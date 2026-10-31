@@ -1007,9 +1007,8 @@ int ObDASTRTaatIter::fill_output_exprs(int64_t &count, int64_t safe_capacity)
     relevance_proj_datum = relevance_proj_col->locate_batch_datums(*eval_ctx);
   }
   {
-    ObEvalCtx::BatchInfoScopeGuard guard(*ir_rtdef_->eval_ctx_);
+    ObEvalCtx::BatchInfoScopeGuard guard(*eval_ctx);
     for (;OB_SUCC(ret) && next_written_idx_ < safe_capacity && (*cur_map_iter_) != map->end(); (*cur_map_iter_)++) {
-      ObEvalCtx *ctx = ir_rtdef_->eval_ctx_;
       guard.set_batch_idx(next_written_idx_);
       set_datum_func_(doc_id_proj_datum[next_written_idx_], (*cur_map_iter_)->first);
       if (need_relevance) {
@@ -1023,7 +1022,7 @@ int ObDASTRTaatIter::fill_output_exprs(int64_t &count, int64_t safe_capacity)
 
       if (nullptr == match_filter) {
         filter_valid = true;
-      } else if (OB_FAIL(match_filter->eval(*ir_rtdef_->eval_ctx_, filter_res))) {
+      } else if (OB_FAIL(match_filter->eval(*eval_ctx, filter_res))) {
       } else {
         filter_valid = !(filter_res->is_null() || 0 == filter_res->get_int());
       }
@@ -1184,6 +1183,7 @@ int ObDASTRTaatIter::fill_chunk_store_by_tr_iter()
     }
 
     int64_t all_token_doc_cnt = 0;
+    sql::ObEvalCtx *token_eval_ctx = ir_rtdef_->eval_ctx_;
     for (int64_t token_idx = 0; OB_SUCC(ret) && token_idx < query_tokens_.count(); ++token_idx) {
       int64_t token_doc_cnt = 0;
 
@@ -1260,8 +1260,7 @@ int ObDASTRTaatIter::fill_chunk_store_by_tr_iter()
       if (OB_FAIL(ret)) {
       } else {
         all_token_doc_cnt += token_doc_cnt;
-        sql::ObEvalCtx *eval_ctx = ir_rtdef_->get_inv_idx_scan_rtdef()->eval_ctx_;
-        eval_ctx->reuse(eval_ctx->get_batch_size());
+        token_eval_ctx->reuse(token_eval_ctx->get_batch_size());
         // the last token don't reuse and rescan
         if (token_idx + 1 < query_tokens_.count()) {
           if (OB_FAIL(token_iters_.at(0)->reuse())) {
@@ -1356,10 +1355,10 @@ int ObDASTRTaatIter::inner_load_next_hashmap()
       if (OB_UNLIKELY(OB_ITER_END != ret)) {
       }
     } else {
-      ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
+      ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*ctx);
       if (OB_FAIL(doc_id.from_datum(doc_id_datum))) {
       } else if (need_relevance) {
-        ObDatum &relevance_datum = relevance_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
+        ObDatum &relevance_datum = relevance_expr->locate_expr_datum(*ctx);
         cur_relevance = relevance_datum.get_double();
         if (OB_FAIL(map->get_refactored(doc_id, last_relevance))) {
           if (OB_HASH_NOT_EXIST != ret) {
@@ -1758,6 +1757,7 @@ int ObDASTRDaatIter::inner_get_next_row()
     bool doc_valid = false;
     ObExpr *match_filter = ir_ctdef_->need_calc_relevance() ? ir_ctdef_->match_filter_ : nullptr;
     ObDatum *filter_res = nullptr;
+    ObEvalCtx *eval_ctx = ir_rtdef_->eval_ctx_;
     const bool is_batch = false;
     while (OB_SUCC(ret) && !got_valid_document) {
       clear_evaluated_infos();
@@ -1771,7 +1771,7 @@ int ObDASTRDaatIter::inner_get_next_row()
         // do nothing
       } else if (nullptr == match_filter) {
         filter_valid = true;
-      } else if (OB_FAIL(match_filter->eval(*ir_rtdef_->eval_ctx_, filter_res))) {
+      } else if (OB_FAIL(match_filter->eval(*eval_ctx, filter_res))) {
       } else {
         filter_valid = !(filter_res->is_null() || 0 == filter_res->get_int());
       }
@@ -1824,7 +1824,7 @@ int ObDASTRDaatIter::inner_get_next_rows(int64_t &count, int64_t capacity)
         // Passing this invalid data position to the upper level is Costly.
         if (nullptr == match_filter) {
           filter_valid = true;
-        } else if (OB_FAIL(match_filter->eval(*ir_rtdef_->eval_ctx_, filter_res))) {
+        } else if (OB_FAIL(match_filter->eval(*batch_ctx, filter_res))) {
         } else {
           filter_valid = !(filter_res->is_null() || 0 == filter_res->get_int());
         }
@@ -1922,11 +1922,12 @@ int ObDASTRDaatIter::fill_loser_tree_item(
   int ret = OB_SUCCESS;
   item.iter_idx_ = iter_idx;
   ObExpr *doc_id_expr = ir_ctdef_->inv_scan_domain_id_col_;
-  const ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
+  ObEvalCtx *eval_ctx = ir_rtdef_->eval_ctx_;
+  const ObDatum &doc_id_datum = doc_id_expr->locate_expr_datum(*eval_ctx);
   if (OB_FAIL(iter_doc_ids_[iter_idx].from_datum(doc_id_datum))) {
   } else if (ir_ctdef_->need_calc_relevance()) {
     ObExpr *relevance_expr = ir_ctdef_->relevance_expr_;
-    const ObDatum &relevance_datum = relevance_expr->locate_expr_datum(*ir_rtdef_->eval_ctx_);
+    const ObDatum &relevance_datum = relevance_expr->locate_expr_datum(*eval_ctx);
     item.relevance_ = relevance_datum.get_double();
   }
   return ret;

@@ -281,7 +281,8 @@ int ObSRTaaTIterImpl::fill_chunk_stores()
               skips_[i]->set_all(capacity);
             }
             for (int64_t i = 0; OB_SUCC(ret) && i < count; ++i) {
-              const ObDatum &id_datum = iter_param_->id_proj_expr_->locate_expr_datum(*eval_ctx, i);
+              ObExpr *id_proj_expr = iter_param_->id_proj_expr_;
+              const ObDatum &id_datum = id_proj_expr->locate_expr_datum(*eval_ctx, i);
               if (OB_UNLIKELY(id_datum.is_null()) || OB_ISNULL(id_datum.ptr_)) {
                 ret = OB_ERR_UNEXPECTED;
               } else {
@@ -307,12 +308,13 @@ int ObSRTaaTIterImpl::fill_chunk_stores()
         }
       } else {
         // non-batched
+        ObExpr *id_proj_expr = iter_param_->id_proj_expr_;
         while (OB_SUCC(ret)) {
           if (OB_FAIL(dim_iter_->get_next_row())) {
             if (OB_UNLIKELY(OB_ITER_END != ret)) {
             }
           } else {
-            const ObDatum &id_datum = iter_param_->id_proj_expr_->locate_expr_datum(*eval_ctx);
+            const ObDatum &id_datum = id_proj_expr->locate_expr_datum(*eval_ctx);
             if (OB_UNLIKELY(id_datum.is_null()) || OB_ISNULL(id_datum.ptr_)) {
               ret = OB_ERR_UNEXPECTED;
             } else {
@@ -387,16 +389,18 @@ int ObSRTaaTIterImpl::load_next_hash_map()
     ObDocIdExt id;
     double cur_relevance = 0.0;
     double last_relevance = 0.0;
+    ObExpr *id_proj_expr = iter_param_->id_proj_expr_;
+    ObExpr *relevance_expr = iter_param_->relevance_expr_;
     while (OB_SUCC(ret)) {
       if (OB_FAIL(query::spill_row_store_next_row(
           store_iter, *eval_ctx, exprs))) {
         if (OB_UNLIKELY(OB_ITER_END != ret)) {
         }
       } else {
-        ObDatum &id_datum = iter_param_->id_proj_expr_->locate_expr_datum(*eval_ctx);
+        ObDatum &id_datum = id_proj_expr->locate_expr_datum(*eval_ctx);
         if (OB_FAIL(id.from_datum(id_datum))) {
         } else if (iter_param_->need_project_relevance()) {
-          ObDatum &relevance_datum = iter_param_->relevance_expr_->locate_expr_datum(*eval_ctx);
+          ObDatum &relevance_datum = relevance_expr->locate_expr_datum(*eval_ctx);
           cur_relevance = relevance_datum.get_double();
           if (OB_FAIL(map->get_refactored(id, last_relevance))) {
             if (OB_HASH_NOT_EXIST != ret) {
